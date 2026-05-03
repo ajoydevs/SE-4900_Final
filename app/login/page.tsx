@@ -32,6 +32,24 @@ function LoginForm() {
         setError(signErr.message);
         return;
       }
+      // #region agent log
+      fetch("http://127.0.0.1:7792/ingest/18dde792-c522-4d1c-b861-703aa48af361", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "X-Debug-Session-Id": "2b5a29",
+        },
+        body: JSON.stringify({
+          sessionId: "2b5a29",
+          runId: "pre-fix",
+          hypothesisId: "H1",
+          location: "app/login/page.tsx:otp-sent",
+          message: "signInWithOtp succeeded",
+          data: { origin: window.location.origin },
+          timestamp: Date.now(),
+        }),
+      }).catch(() => {});
+      // #endregion
       setMessage("Check your email for the magic link.");
     } finally {
       setLoading(false);
