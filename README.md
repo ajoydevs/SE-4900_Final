@@ -19,9 +19,10 @@ cp .env.example .env.local
 
 | Variable | Purpose |
 |----------|---------|
-| `NEXT_PUBLIC_SUPABASE_URL` | Supabase project URL (Settings → API → Project URL). |
-| `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Supabase anonymous key (Settings → API → `anon` `public`). Used in the browser and server with the user session for RLS. |
-| `SUPABASE_SERVICE_ROLE_KEY` | Optional for this codebase. The MVP uses the authenticated user session for all data access. Leave blank unless you extend the app with privileged jobs. |
+| `NEXT_PUBLIC_SUPABASE_URL` | Supabase project URL (Settings → API / Connect → Project URL). |
+| `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` | **Preferred:** new publishable key (`sb_publishable_…`, Settings → API Keys). Same role as legacy anon: safe in the client with RLS. |
+| `NEXT_PUBLIC_SUPABASE_ANON_KEY` | **Alternative:** legacy `anon` JWT from “Legacy anon, service_role API keys”. Use if you do not use a publishable key. If both publishable and anon are set, **publishable wins**. |
+| `SUPABASE_SERVICE_ROLE_KEY` | Optional for this codebase. The MVP uses the authenticated user session for all data access. Leave blank unless you extend the app with privileged jobs. Never use the secret / `service_role` key in `NEXT_PUBLIC_*`. |
 
 ### Auth redirect URL
 
