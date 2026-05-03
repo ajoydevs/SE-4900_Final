@@ -4,6 +4,8 @@ import { createServerSupabase } from "@/lib/supabase/server";
 import type { ProjectListItem } from "@/lib/types";
 import Link from "next/link";
 
+export const dynamic = "force-dynamic";
+
 export default async function DashboardPage() {
   const supabase = await createServerSupabase();
   const { data: rows } = await supabase
