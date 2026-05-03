@@ -1,5 +1,6 @@
 import { createServerClient } from "@supabase/ssr";
 import { jsonError } from "@/lib/api/errors";
+import { getSupabasePublicKey, getSupabaseUrl } from "@/lib/supabase/env";
 import { NextResponse, type NextRequest } from "next/server";
 
 export async function middleware(request: NextRequest) {
@@ -7,13 +8,13 @@ export async function middleware(request: NextRequest) {
     request,
   });
 
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const anon = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
-  if (!url || !anon) {
+  const url = getSupabaseUrl();
+  const publicKey = getSupabasePublicKey();
+  if (!url || !publicKey) {
     return supabaseResponse;
   }
 
-  const supabase = createServerClient(url, anon, {
+  const supabase = createServerClient(url, publicKey, {
     cookies: {
       getAll() {
         return request.cookies.getAll();
