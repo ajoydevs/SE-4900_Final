@@ -2,14 +2,10 @@ import { createServerClient } from "@supabase/ssr";
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import { cookies } from "next/headers";
 import type { User } from "@supabase/supabase-js";
+import { requireSupabasePublicEnv } from "@/lib/supabase/env";
 
 function getEnv() {
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const anon = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
-  if (!url || !anon) {
-    throw new Error("Missing NEXT_PUBLIC_SUPABASE_URL or NEXT_PUBLIC_SUPABASE_ANON_KEY");
-  }
-  return { url, anon };
+  return requireSupabasePublicEnv();
 }
 
 /**
@@ -18,13 +14,13 @@ function getEnv() {
 export async function getRouteSupabase(
   request: Request
 ): Promise<{ supabase: SupabaseClient; user: User | null }> {
-  const { url, anon } = getEnv();
+  const { url, publicKey } = getEnv();
   const authHeader = request.headers.get("authorization");
   const bearer =
     authHeader?.startsWith("Bearer ") ? authHeader.slice(7).trim() : undefined;
 
   if (bearer) {
-    const supabase = createClient(url, anon, {
+    const supabase = createClient(url, publicKey, {
       global: { headers: { Authorization: `Bearer ${bearer}` } },
     });
     const {
@@ -38,7 +34,7 @@ export async function getRouteSupabase(
   }
 
   const cookieStore = await cookies();
-  const supabase = createServerClient(url, anon, {
+  const supabase = createServerClient(url, publicKey, {
     cookies: {
       getAll() {
         return cookieStore.getAll();
