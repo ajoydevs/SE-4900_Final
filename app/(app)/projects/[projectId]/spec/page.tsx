@@ -3,6 +3,8 @@ import { SpecAttachClient } from "./spec-client";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 
+export const dynamic = "force-dynamic";
+
 type Props = { params: Promise<{ projectId: string }> };
 
 export default async function SpecPage(props: Props) {
