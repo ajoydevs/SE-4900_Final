@@ -5,6 +5,8 @@ import { createServerSupabase } from "@/lib/supabase/server";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 
+export const dynamic = "force-dynamic";
+
 type Props = { params: Promise<{ projectId: string }> };
 
 export default async function ProjectHomePage(props: Props) {
