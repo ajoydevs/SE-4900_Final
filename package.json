@@ -3,6 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
+    "start:scratch": "node scripts/start-from-scratch.mjs",
     "dev": "node scripts/dev.mjs",
     "dev:next": "next dev",
     "db:migrate": "node scripts/migrate.mjs",
