@@ -1,6 +1,6 @@
 import { ProjectForm } from "@/components/ProjectForm";
 import { mapProject } from "@/lib/api/mappers";
-import { requireServerSession } from "@/lib/auth/server-session";
+import { getAppUserId } from "@/lib/auth/app-user";
 import { getPool } from "@/lib/db/pool";
 import Link from "next/link";
 import { notFound } from "next/navigation";
@@ -11,11 +11,11 @@ type Props = { params: Promise<{ projectId: string }> };
 
 export default async function EditProjectPage(props: Props) {
   const { projectId } = await props.params;
-  const user = await requireServerSession();
+  const userId = await getAppUserId();
   const pool = getPool();
   const { rows } = await pool.query(
     `select * from projects where id = $1 and user_id = $2`,
-    [projectId, user.id]
+    [projectId, userId]
   );
   const data = rows[0];
   if (!data) notFound();
