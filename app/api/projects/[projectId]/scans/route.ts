@@ -115,10 +115,13 @@ export async function POST(request: Request, ctx: Ctx) {
       issuesFound: String(payload.issuesFound),
     };
     try {
-        await pool.query(
-          `select finalize_scan_run($1::uuid, $2::uuid, $3::uuid, $4::jsonb, $5::jsonb)`,
-          [userId, projectId, runId, pRun, payload.issues]
-        );
+      // Pass JSON as text and cast to jsonb so Postgres always receives valid JSON.
+      // Passing raw JS objects through node-pg for jsonb can produce invalid JSON for
+      // large issue arrays (e.g. many DOC_PATH_NOT_FOUND rows), causing 22P02 errors.
+      await pool.query(
+        `select finalize_scan_run($1::uuid, $2::uuid, $3::uuid, $4::text::jsonb, $5::text::jsonb)`,
+        [userId, projectId, runId, JSON.stringify(pRun), JSON.stringify(payload.issues)]
+      );
     } catch (err) {
       console.error("finalize_scan_run", err);
       throw err instanceof Error ? err : new Error("finalize failed");
