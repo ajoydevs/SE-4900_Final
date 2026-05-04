@@ -1,58 +1,95 @@
 # DocSync MVP
 
-Next.js (App Router) + TypeScript + Supabase Postgres implementation of the DocSync MVP specification pack in the repository `spec/` folder (read order starts at `spec/15-decisions-assumptions.md`).
+Next.js (App Router) + TypeScript + **local PostgreSQL** implementation of the DocSync MVP specification pack in the repository `spec/` folder (read order starts at `spec/15-decisions-assumptions.md`).
 
 UI reference exports live next to this app at [`../visily/`](../visily/) (for example `visily-projects-dashboard.jpg`).
 
 ## Prerequisites
 
 - Node.js 20+
-- A Supabase project (Postgres + Auth)
+- **PostgreSQL** running on your Mac (no Docker required). Easiest paths:
+  - **Homebrew:** `brew install postgresql@16`, then `brew services start postgresql@16`
+  - **Postgres.app:** install from [postgresapp.com](https://postgresapp.com/) and start the server from the app
 
-## Environment variables
-
-Copy the example file and fill in values locally (never commit real secrets):
+Create an empty database named `docsync` (once):
 
 ```bash
-cp .env.example .env.local
+createdb docsync
 ```
+
+If `createdb` fails with “role does not exist”, use Postgres.app’s GUI to create a database, or run `createuser -s $(whoami)` first. If login still fails, set `DATABASE_URL` to include your macOS username, for example:
+
+`postgresql://YOUR_USERNAME@localhost:5432/docsync`
+
+## Quick start
+
+1. Copy environment defaults:
+
+   ```bash
+   cp .env.example .env.local
+   ```
+
+   Set `AUTH_SECRET` to any random string **at least 32 characters** (used to sign session cookies). Adjust `DATABASE_URL` if your Postgres user, host, port, or database name differs.
+
+2. Install dependencies:
+
+   ```bash
+   npm install
+   ```
+
+3. **One command** — apply migrations (if needed) and start the app:
+
+   ```bash
+   npm run dev
+   ```
+
+   This runs [`scripts/dev.mjs`](scripts/dev.mjs): migrations from [`db/migrations/001_local_postgres.sql`](db/migrations/001_local_postgres.sql), then `next dev`.
+
+4. Open [http://localhost:3000](http://localhost:3000), use **Create account** or **Sign in** with email and password only.
+
+### Commands
+
+| Script | Purpose |
+|--------|---------|
+| `npm run dev` | Migrate (if needed) **+** Next.js dev server |
+| `npm run dev:next` | Next.js only (Postgres must already be migrated) |
+| `npm run db:migrate` | Apply pending SQL migrations |
+
+### Environment variables
 
 | Variable | Purpose |
 |----------|---------|
-| `NEXT_PUBLIC_SUPABASE_URL` | Supabase project URL (Settings → API / Connect → Project URL). |
-| `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` | **Preferred:** new publishable key (`sb_publishable_…`, Settings → API Keys). Same role as legacy anon: safe in the client with RLS. |
-| `NEXT_PUBLIC_SUPABASE_ANON_KEY` | **Alternative:** legacy `anon` JWT from “Legacy anon, service_role API keys”. Use if you do not use a publishable key. If both publishable and anon are set, **publishable wins**. |
-| `SUPABASE_SERVICE_ROLE_KEY` | **Required for “Create account”** on the login page. The app registers new users with the Admin API (`email_confirm: true`) so Supabase does not send confirmation emails or hit built-in email rate limits. Get it from **Project Settings → API → service_role** (secret). Use only in `.env.local` / server env—never `NEXT_PUBLIC_*` or client code. |
+| `DATABASE_URL` | PostgreSQL connection string for your **local** server. |
+| `AUTH_SECRET` | Secret for signing HTTP-only session cookies (HS256); minimum 32 characters. |
 
-### Auth (email + password only, no signup emails)
+### Authentication (minimal, local dev)
 
-DocSync’s login page uses **email and password** only (no magic links, no client `signUp` that triggers Supabase mail).
+- Email + password stored in Postgres (`users.password_hash` with bcrypt).
+- Sessions are **signed JWTs** in an HTTP-only cookie (`docsync_session`).
+- No password reset, no email verification, no OAuth, no external auth providers.
 
-**Create account** calls `POST /api/auth/register`, which uses **`SUPABASE_SERVICE_ROLE_KEY`** and `auth.admin.createUser` with **`email_confirm: true`**. That creates a ready-to-use user **without** sending Supabase confirmation or magic-link email, so you avoid the built-in **email rate limit** on public signup.
+The public routes `POST /api/auth/login` and `POST /api/auth/register` create sessions; all other `/api/*` routes expect a valid session cookie (or `Authorization: Bearer <jwt>` for scripts).
 
-In Supabase **Authentication → Providers → Email**, keep **email / password** enabled. You can leave **Confirm email** on or off; registration no longer relies on the public `signUp` email path. Still disable **magic link / email OTP** if you do not want those flows.
+**Security:** registration is open on whoever can reach the server—fine for local development only.
 
-**Security:** the register route is public—anyone who can reach your deployment can attempt sign-ups. For production, add your own protections (CAPTCHA, allowlist, IP limits, or disable the route and provision users only via admin).
+### Database
 
-**Authentication → URL configuration:** set **Site URL** to your app origin (for example `http://localhost:3000`). Optional: keep `http://localhost:3000/auth/callback` under **Redirect URLs** for future OAuth.
+Schema lives in [`db/migrations/001_local_postgres.sql`](db/migrations/001_local_postgres.sql): enums, `users`, `projects`, `openapi_specs`, `scan_runs`, `drift_issues`, and RPC helpers:
 
-Password reset and other email-based flows are not implemented in the app.
+- `insert_running_scan(user_id, …)` — inserts a `running` scan and enforces the concurrent-scan guard.
+- `finalize_scan_run(user_id, …)` — completes the scan row, inserts drift issues, and updates denormalized project fields.
 
-## Database schema and RLS
+Access control is enforced in application code by filtering on `user_id`.
 
-1. Open the Supabase SQL editor (or use the Supabase CLI with linked project).
-2. Run the migration script:
+To wipe the dev database and re-run migrations:
 
-[`supabase/migrations/001_init.sql`](supabase/migrations/001_init.sql)
-
-This creates enums, tables (`projects`, `openapi_specs`, `scan_runs`, `drift_issues`), indexes, `updated_at` triggers, row level security policies, and RPC helpers:
-
-- `insert_running_scan` — inserts a `running` scan row and enforces the “no concurrent scans” guard.
-- `finalize_scan_run` — completes the scan row, inserts drift issues, and updates denormalized project fields in one transaction.
+```bash
+dropdb docsync && createdb docsync && npm run db:migrate
+```
 
 ### Latest-scan-only issues
 
-The issues list and issue detail APIs only surface rows tied to the **latest completed** successful scan (`status = completed`, `result in (drift, no_drift)`), matching `spec/09-data-model.md`. Older `scan_runs` rows remain for history; their issues are not shown in the default list.
+The issues list and issue detail APIs only surface rows tied to the **latest completed** successful scan (`status = completed`, `result in (drift, no_drift)`), matching `spec/09-data-model.md`.
 
 ## Drift engine
 
@@ -69,15 +106,6 @@ The issues list and issue detail APIs only surface rows tied to the **latest com
 ## Security note
 
 `documentation_source_url` is user-controlled. The MVP only allows `http`/`https` URLs at validation time; be aware of SSRF considerations in production deployments (`spec/14-edge-cases.md`).
-
-## Commands
-
-```bash
-npm install
-npm run dev
-```
-
-Other scripts: `npm run build`, `npm start`, `npm run lint`.
 
 ## Product scope guardrails
 
