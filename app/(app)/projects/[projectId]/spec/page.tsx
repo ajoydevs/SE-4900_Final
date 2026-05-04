@@ -1,4 +1,4 @@
-import { requireServerSession } from "@/lib/auth/server-session";
+import { getAppUserId } from "@/lib/auth/app-user";
 import { getPool } from "@/lib/db/pool";
 import { SpecAttachClient } from "./spec-client";
 import Link from "next/link";
@@ -10,12 +10,12 @@ type Props = { params: Promise<{ projectId: string }> };
 
 export default async function SpecPage(props: Props) {
   const { projectId } = await props.params;
-  const user = await requireServerSession();
+  const userId = await getAppUserId();
   const pool = getPool();
 
   const projRes = await pool.query(
     `select name from projects where id = $1 and user_id = $2`,
-    [projectId, user.id]
+    [projectId, userId]
   );
   const project = projRes.rows[0];
   if (!project) notFound();
