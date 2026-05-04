@@ -1,19 +1,18 @@
-import type { SupabaseClient } from "@supabase/supabase-js";
+import type { Pool } from "pg";
 
 export async function getLatestCompletedScanId(
-  supabase: SupabaseClient,
+  pool: Pool,
   projectId: string
 ): Promise<string | null> {
-  const { data } = await supabase
-    .from("scan_runs")
-    .select("id")
-    .eq("project_id", projectId)
-    .eq("status", "completed")
-    .in("result", ["drift", "no_drift"])
-    .not("completed_at", "is", null)
-    .order("completed_at", { ascending: false })
-    .limit(1)
-    .maybeSingle();
-
-  return data?.id ?? null;
+  const { rows } = await pool.query<{ id: string }>(
+    `select id from scan_runs
+     where project_id = $1
+       and status = 'completed'
+       and result in ('drift', 'no_drift')
+       and completed_at is not null
+     order by completed_at desc
+     limit 1`,
+    [projectId]
+  );
+  return rows[0]?.id ?? null;
 }
