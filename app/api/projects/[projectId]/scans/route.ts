@@ -1,7 +1,7 @@
 import { randomUUID } from "crypto";
 import { jsonError } from "@/lib/api/errors";
 import { collectScanPrereqMissing } from "@/lib/api/scan-prereq";
-import { getRouteSupabase } from "@/lib/api/supabase-route";
+import { getRouteSession } from "@/lib/api/route-auth";
 import {
   ENGINE_VERSION,
   runDriftScan,
@@ -9,12 +9,13 @@ import {
 } from "@/lib/drift/engine";
 import { validateOpenApiText } from "@/lib/openapi/validate";
 import { isUuid } from "@/lib/validation/project";
+import { getPool } from "@/lib/db/pool";
 import { NextResponse } from "next/server";
 
 type Ctx = { params: Promise<{ projectId: string }> };
 
-function rpcMessage(err: { message?: string } | null): string {
-  return err?.message || "";
+function rpcMessage(err: unknown): string {
+  return err instanceof Error ? err.message : "";
 }
 
 export async function POST(request: Request, ctx: Ctx) {
@@ -23,25 +24,26 @@ export async function POST(request: Request, ctx: Ctx) {
     return jsonError(404, "NOT_FOUND", "Project not found");
   }
 
-  const { supabase, user } = await getRouteSupabase(request);
+  const { user } = await getRouteSession(request);
   if (!user) {
     return jsonError(401, "UNAUTHORIZED", "Authentication required");
   }
 
-  const { data: project, error: pErr } = await supabase
-    .from("projects")
-    .select("*")
-    .eq("id", projectId)
-    .maybeSingle();
-  if (pErr || !project) {
+  const pool = getPool();
+  const projRes = await pool.query(
+    `select * from projects where id = $1 and user_id = $2`,
+    [projectId, user.id]
+  );
+  const project = projRes.rows[0];
+  if (!project) {
     return jsonError(404, "NOT_FOUND", "Project not found");
   }
 
-  const { data: spec } = await supabase
-    .from("openapi_specs")
-    .select("*")
-    .eq("project_id", projectId)
-    .maybeSingle();
+  const specRes = await pool.query(
+    `select * from openapi_specs where project_id = $1`,
+    [projectId]
+  );
+  const spec = specRes.rows[0];
 
   const missing = collectScanPrereqMissing({
     name: (project as { name: string }).name,
@@ -62,17 +64,20 @@ export async function POST(request: Request, ctx: Ctx) {
   const rawText = (spec as { raw_spec_text: string }).raw_spec_text;
 
   const runId = randomUUID();
-  const { error: startErr } = await supabase.rpc("insert_running_scan", {
-    p_project_id: projectId,
-    p_run_id: runId,
-    p_engine_version: ENGINE_VERSION,
-    p_openapi_sha256: openapiSha,
-  });
 
-  if (startErr) {
-    const msg = rpcMessage(startErr);
+  try {
+    await pool.query(
+      `select insert_running_scan($1::uuid, $2::uuid, $3::uuid, $4::text, $5::text)`,
+      [user.id, projectId, runId, ENGINE_VERSION, openapiSha]
+    );
+  } catch (e) {
+    const msg = rpcMessage(e);
     if (msg.includes("scan_in_progress")) {
-      return jsonError(409, "SCAN_IN_PROGRESS", "A scan is already running for this project.");
+      return jsonError(
+        409,
+        "SCAN_IN_PROGRESS",
+        "A scan is already running for this project."
+      );
     }
     return jsonError(500, "INTERNAL_ERROR", msg || "Could not start scan");
   }
@@ -112,15 +117,14 @@ export async function POST(request: Request, ctx: Ctx) {
       docFetchError: payload.docFetchError ?? "",
       issuesFound: String(payload.issuesFound),
     };
-    const { error: finErr } = await supabase.rpc("finalize_scan_run", {
-      p_project_id: projectId,
-      p_run_id: runId,
-      p_run: pRun,
-      p_issues: payload.issues,
-    });
-    if (finErr) {
-      console.error("finalize_scan_run", finErr);
-      throw new Error(finErr.message);
+    try {
+        await pool.query(
+          `select finalize_scan_run($1::uuid, $2::uuid, $3::uuid, $4::jsonb, $5::jsonb)`,
+          [user.id, projectId, runId, pRun, payload.issues]
+        );
+    } catch (err) {
+      console.error("finalize_scan_run", err);
+      throw err instanceof Error ? err : new Error("finalize failed");
     }
   };
 
