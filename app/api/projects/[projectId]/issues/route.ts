@@ -1,6 +1,6 @@
 import { jsonError } from "@/lib/api/errors";
 import { getLatestCompletedScanId } from "@/lib/api/latest-scan";
-import { getRouteSession } from "@/lib/api/route-auth";
+import { getAppUserId } from "@/lib/auth/app-user";
 import { isUuid } from "@/lib/validation/project";
 import { getPool } from "@/lib/db/pool";
 import { NextResponse } from "next/server";
@@ -13,15 +13,12 @@ export async function GET(request: Request, ctx: Ctx) {
     return jsonError(404, "NOT_FOUND", "Project not found");
   }
 
-  const { user } = await getRouteSession(request);
-  if (!user) {
-    return jsonError(401, "UNAUTHORIZED", "Authentication required");
-  }
+  const userId = await getAppUserId();
 
   const pool = getPool();
   const projRes = await pool.query(
     `select id from projects where id = $1 and user_id = $2`,
-    [projectId, user.id]
+    [projectId, userId]
   );
   if (!projRes.rows[0]) {
     return jsonError(404, "NOT_FOUND", "Project not found");
