@@ -22,16 +22,21 @@ cp .env.example .env.local
 | `NEXT_PUBLIC_SUPABASE_URL` | Supabase project URL (Settings → API / Connect → Project URL). |
 | `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` | **Preferred:** new publishable key (`sb_publishable_…`, Settings → API Keys). Same role as legacy anon: safe in the client with RLS. |
 | `NEXT_PUBLIC_SUPABASE_ANON_KEY` | **Alternative:** legacy `anon` JWT from “Legacy anon, service_role API keys”. Use if you do not use a publishable key. If both publishable and anon are set, **publishable wins**. |
-| `SUPABASE_SERVICE_ROLE_KEY` | Optional for this codebase. The MVP uses the authenticated user session for all data access. Leave blank unless you extend the app with privileged jobs. Never use the secret / `service_role` key in `NEXT_PUBLIC_*`. |
+| `SUPABASE_SERVICE_ROLE_KEY` | **Required for “Create account”** on the login page. The app registers new users with the Admin API (`email_confirm: true`) so Supabase does not send confirmation emails or hit built-in email rate limits. Get it from **Project Settings → API → service_role** (secret). Use only in `.env.local` / server env—never `NEXT_PUBLIC_*` or client code. |
 
-### Auth redirect URL
+### Auth (email + password only, no signup emails)
 
-In Supabase **Authentication → URL configuration**, add your local site URL and redirect:
+DocSync’s login page uses **email and password** only (no magic links, no client `signUp` that triggers Supabase mail).
 
-- Site URL: `http://localhost:3000` (or your deployed origin)
-- Additional redirect URLs: `http://localhost:3000/auth/callback`
+**Create account** calls `POST /api/auth/register`, which uses **`SUPABASE_SERVICE_ROLE_KEY`** and `auth.admin.createUser` with **`email_confirm: true`**. That creates a ready-to-use user **without** sending Supabase confirmation or magic-link email, so you avoid the built-in **email rate limit** on public signup.
 
-In **Authentication → Providers → Email**, enable the **Email** provider. Turn on **Magic link** (or “Email OTP”) if you want passwordless sign-in, and ensure **Email / password** (or “Allow users to sign up with email and password”) is enabled if you use the **Email & password** tab on the login page. Confirm **Site URL** and redirect URLs above match your deployment.
+In Supabase **Authentication → Providers → Email**, keep **email / password** enabled. You can leave **Confirm email** on or off; registration no longer relies on the public `signUp` email path. Still disable **magic link / email OTP** if you do not want those flows.
+
+**Security:** the register route is public—anyone who can reach your deployment can attempt sign-ups. For production, add your own protections (CAPTCHA, allowlist, IP limits, or disable the route and provision users only via admin).
+
+**Authentication → URL configuration:** set **Site URL** to your app origin (for example `http://localhost:3000`). Optional: keep `http://localhost:3000/auth/callback` under **Redirect URLs** for future OAuth.
+
+Password reset and other email-based flows are not implemented in the app.
 
 ## Database schema and RLS
 
