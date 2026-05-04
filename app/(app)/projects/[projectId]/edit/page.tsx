@@ -1,6 +1,7 @@
 import { ProjectForm } from "@/components/ProjectForm";
 import { mapProject } from "@/lib/api/mappers";
-import { createServerSupabase } from "@/lib/supabase/server";
+import { requireServerSession } from "@/lib/auth/server-session";
+import { getPool } from "@/lib/db/pool";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 
@@ -10,8 +11,13 @@ type Props = { params: Promise<{ projectId: string }> };
 
 export default async function EditProjectPage(props: Props) {
   const { projectId } = await props.params;
-  const supabase = await createServerSupabase();
-  const { data } = await supabase.from("projects").select("*").eq("id", projectId).maybeSingle();
+  const user = await requireServerSession();
+  const pool = getPool();
+  const { rows } = await pool.query(
+    `select * from projects where id = $1 and user_id = $2`,
+    [projectId, user.id]
+  );
+  const data = rows[0];
   if (!data) notFound();
   const p = mapProject(data as never);
 
