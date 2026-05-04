@@ -66,7 +66,7 @@ export async function POST(request: Request) {
       return jsonError(
         409,
         "USER_EXISTS",
-        "An account with this email already exists. Use “Sign in” instead."
+        "An account with this email already exists. Use Sign in instead."
       );
     }
     const msg = e instanceof Error ? e.message : String(e);
