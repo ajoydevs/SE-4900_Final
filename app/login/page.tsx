@@ -2,7 +2,16 @@
 
 import { getSafeRedirectPath } from "@/lib/auth/safe-redirect";
 import { useSearchParams } from "next/navigation";
-import { Suspense, useState } from "react";
+import { Suspense, useCallback, useState } from "react";
+
+async function handleAuthResponse(res: Response): Promise<boolean> {
+  if ([301, 302, 303, 307, 308].includes(res.status)) {
+    const loc = res.headers.get("Location");
+    window.location.href = loc ?? "/";
+    return true;
+  }
+  return false;
+}
 
 function LoginForm() {
   const params = useSearchParams();
@@ -16,17 +25,31 @@ function LoginForm() {
   );
   const [loading, setLoading] = useState(false);
 
-  async function signInWithPassword(e: React.FormEvent) {
-    e.preventDefault();
+  const redirectTo = useCallback(
+    () => getSafeRedirectPath(params.get("next")),
+    [params]
+  );
+
+  async function signInWithPassword() {
     setError(null);
     setLoading(true);
     try {
       const res = await fetch("/api/auth/login", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        credentials: "same-origin",
-        body: JSON.stringify({ email: email.trim(), password }),
+        credentials: "include",
+        redirect: "manual",
+        body: JSON.stringify({
+          email: email.trim(),
+          password,
+          redirectTo: redirectTo(),
+        }),
       });
+
+      if (await handleAuthResponse(res)) {
+        return;
+      }
+
       const payload = (await res.json().catch(() => null)) as {
         error?: { message?: string };
       } | null;
@@ -35,7 +58,8 @@ function LoginForm() {
         setError(payload?.error?.message ?? "Could not sign in.");
         return;
       }
-      window.location.assign(getSafeRedirectPath(params.get("next")));
+
+      window.location.href = redirectTo();
     } finally {
       setLoading(false);
     }
@@ -48,9 +72,19 @@ function LoginForm() {
       const res = await fetch("/api/auth/register", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        credentials: "same-origin",
-        body: JSON.stringify({ email: email.trim(), password }),
+        credentials: "include",
+        redirect: "manual",
+        body: JSON.stringify({
+          email: email.trim(),
+          password,
+          redirectTo: redirectTo(),
+        }),
       });
+
+      if (await handleAuthResponse(res)) {
+        return;
+      }
+
       const payload = (await res.json().catch(() => null)) as {
         error?: { message?: string };
       } | null;
@@ -62,9 +96,16 @@ function LoginForm() {
         return;
       }
 
-      window.location.assign(getSafeRedirectPath(params.get("next")));
+      window.location.href = redirectTo();
     } finally {
       setLoading(false);
+    }
+  }
+
+  function onKeyDown(e: React.KeyboardEvent) {
+    if (e.key === "Enter") {
+      e.preventDefault();
+      void signInWithPassword();
     }
   }
 
@@ -77,7 +118,8 @@ function LoginForm() {
         Email and password only for local development. No password reset or email verification.
       </p>
 
-      <form onSubmit={signInWithPassword} className="mt-8 space-y-4">
+      {/* No <form>: avoids accidental POST /login document navigations in dev */}
+      <div className="mt-8 space-y-4" onKeyDown={onKeyDown}>
         <div>
           <label htmlFor="email" className="block text-sm font-medium text-slate-700">
             Email
@@ -116,8 +158,9 @@ function LoginForm() {
         ) : null}
         <div className="flex flex-col gap-2">
           <button
-            type="submit"
+            type="button"
             disabled={loading}
+            onClick={() => void signInWithPassword()}
             className="w-full rounded-md bg-slate-900 px-4 py-2 text-sm font-medium text-white shadow hover:bg-slate-800 disabled:opacity-60"
           >
             {loading ? "Working…" : "Sign in"}
@@ -131,7 +174,7 @@ function LoginForm() {
             Create account
           </button>
         </div>
-      </form>
+      </div>
     </div>
   );
 }
