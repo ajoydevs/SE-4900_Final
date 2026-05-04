@@ -1,7 +1,8 @@
 import { jsonError } from "@/lib/api/errors";
 import { mapProject } from "@/lib/api/mappers";
-import { getRouteSupabase } from "@/lib/api/supabase-route";
+import { getRouteSession } from "@/lib/api/route-auth";
 import { isUuid, validateProjectInput } from "@/lib/validation/project";
+import { getPool } from "@/lib/db/pool";
 import { NextResponse } from "next/server";
 
 type Ctx = { params: Promise<{ projectId: string }> };
@@ -12,26 +13,27 @@ export async function GET(request: Request, ctx: Ctx) {
     return jsonError(404, "NOT_FOUND", "Project not found");
   }
 
-  const { supabase, user } = await getRouteSupabase(request);
+  const { user } = await getRouteSession(request);
   if (!user) {
     return jsonError(401, "UNAUTHORIZED", "Authentication required");
   }
 
-  const { data: project, error: pErr } = await supabase
-    .from("projects")
-    .select("*")
-    .eq("id", projectId)
-    .maybeSingle();
-
-  if (pErr || !project) {
+  const pool = getPool();
+  const { rows } = await pool.query(
+    `select * from projects where id = $1 and user_id = $2`,
+    [projectId, user.id]
+  );
+  const project = rows[0];
+  if (!project) {
     return jsonError(404, "NOT_FOUND", "Project not found");
   }
 
-  const { data: spec } = await supabase
-    .from("openapi_specs")
-    .select("validation_status, original_filename, updated_at")
-    .eq("project_id", projectId)
-    .maybeSingle();
+  const specRes = await pool.query(
+    `select validation_status, original_filename, updated_at from openapi_specs
+     where project_id = $1`,
+    [projectId]
+  );
+  const spec = specRes.rows[0];
 
   const openapi = spec
     ? {
@@ -61,7 +63,7 @@ export async function PATCH(request: Request, ctx: Ctx) {
     return jsonError(404, "NOT_FOUND", "Project not found");
   }
 
-  const { supabase, user } = await getRouteSupabase(request);
+  const { user } = await getRouteSession(request);
   if (!user) {
     return jsonError(401, "UNAUTHORIZED", "Authentication required");
   }
@@ -80,12 +82,13 @@ export async function PATCH(request: Request, ctx: Ctx) {
   if ("documentationSourceUrl" in b)
     patch.documentationSourceUrl = String(b.documentationSourceUrl ?? "");
 
-  const { data: existing, error: exErr } = await supabase
-    .from("projects")
-    .select("*")
-    .eq("id", projectId)
-    .maybeSingle();
-  if (exErr || !existing) {
+  const pool = getPool();
+  const existingRes = await pool.query(
+    `select * from projects where id = $1 and user_id = $2`,
+    [projectId, user.id]
+  );
+  const existing = existingRes.rows[0];
+  if (!existing) {
     return jsonError(404, "NOT_FOUND", "Project not found");
   }
 
@@ -113,26 +116,27 @@ export async function PATCH(request: Request, ctx: Ctx) {
     });
   }
 
-  const { data, error } = await supabase
-    .from("projects")
-    .update({
-      name: v.name,
-      repository_url: v.repositoryUrl,
-      documentation_source_url: v.documentationSourceUrl,
-    })
-    .eq("id", projectId)
-    .select("*")
-    .single();
+  const upd = await pool.query(
+    `update projects set
+       name = $2,
+       repository_url = $3,
+       documentation_source_url = $4
+     where id = $1 and user_id = $5
+     returning *`,
+    [projectId, v.name, v.repositoryUrl, v.documentationSourceUrl, user.id]
+  );
 
-  if (error || !data) {
-    return jsonError(500, "INTERNAL_ERROR", error?.message || "Update failed");
+  const data = upd.rows[0];
+  if (!data) {
+    return jsonError(500, "INTERNAL_ERROR", "Update failed");
   }
 
-  const { data: spec } = await supabase
-    .from("openapi_specs")
-    .select("validation_status, original_filename, updated_at")
-    .eq("project_id", projectId)
-    .maybeSingle();
+  const specRes = await pool.query(
+    `select validation_status, original_filename, updated_at from openapi_specs
+     where project_id = $1`,
+    [projectId]
+  );
+  const spec = specRes.rows[0];
 
   const openapi = spec
     ? {
