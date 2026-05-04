@@ -1,6 +1,6 @@
 import { ProjectScanPanel } from "@/components/ProjectScanPanel";
 import { mapProject } from "@/lib/api/mappers";
-import { requireServerSession } from "@/lib/auth/server-session";
+import { getAppUserId } from "@/lib/auth/app-user";
 import { formatLocalDateTime } from "@/lib/format-date";
 import { getPool } from "@/lib/db/pool";
 import Link from "next/link";
@@ -12,11 +12,11 @@ type Props = { params: Promise<{ projectId: string }> };
 
 export default async function ProjectHomePage(props: Props) {
   const { projectId } = await props.params;
-  const user = await requireServerSession();
+  const userId = await getAppUserId();
   const pool = getPool();
   const projRes = await pool.query(
     `select * from projects where id = $1 and user_id = $2`,
-    [projectId, user.id]
+    [projectId, userId]
   );
   const projectRow = projRes.rows[0];
   if (!projectRow) notFound();
