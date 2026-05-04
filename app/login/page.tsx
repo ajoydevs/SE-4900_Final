@@ -1,14 +1,11 @@
 "use client";
 
-import { createBrowserSupabase } from "@/lib/supabase/client";
-import Link from "next/link";
-import { useRouter, useSearchParams } from "next/navigation";
+import { getSafeRedirectPath } from "@/lib/auth/safe-redirect";
+import { useSearchParams } from "next/navigation";
 import { Suspense, useState } from "react";
 
 function LoginForm() {
   const params = useSearchParams();
-  const router = useRouter();
-  const next = params.get("next") ?? "/";
 
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -24,17 +21,21 @@ function LoginForm() {
     setError(null);
     setLoading(true);
     try {
-      const supabase = createBrowserSupabase();
-      const { error: signErr } = await supabase.auth.signInWithPassword({
-        email: email.trim(),
-        password,
+      const res = await fetch("/api/auth/login", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "same-origin",
+        body: JSON.stringify({ email: email.trim(), password }),
       });
-      if (signErr) {
-        setError(signErr.message);
+      const payload = (await res.json().catch(() => null)) as {
+        error?: { message?: string };
+      } | null;
+
+      if (!res.ok) {
+        setError(payload?.error?.message ?? "Could not sign in.");
         return;
       }
-      router.replace(next.startsWith("/") ? next : "/");
-      router.refresh();
+      window.location.assign(getSafeRedirectPath(params.get("next")));
     } finally {
       setLoading(false);
     }
@@ -51,21 +52,17 @@ function LoginForm() {
         body: JSON.stringify({ email: email.trim(), password }),
       });
       const payload = (await res.json().catch(() => null)) as {
-        error?: { message?: string; code?: string };
+        error?: { message?: string };
       } | null;
 
       if (!res.ok) {
         const msg =
-          payload?.error?.message ??
-          (res.status === 503
-            ? "Create account is not configured on the server. Add SUPABASE_SERVICE_ROLE_KEY to .env.local."
-            : "Could not create account.");
+          payload?.error?.message ?? "Could not create account.";
         setError(msg);
         return;
       }
 
-      router.replace(next.startsWith("/") ? next : "/");
-      router.refresh();
+      window.location.assign(getSafeRedirectPath(params.get("next")));
     } finally {
       setLoading(false);
     }
@@ -77,8 +74,7 @@ function LoginForm() {
         Sign in to DocSync
       </h1>
       <p className="mt-2 text-sm text-slate-600">
-        Email and password only. Credentials are checked by Supabase Auth; this screen does not send
-        magic links or other email from the app.
+        Email and password only for local development. No password reset or email verification.
       </p>
 
       <form onSubmit={signInWithPassword} className="mt-8 space-y-4">
@@ -136,12 +132,6 @@ function LoginForm() {
           </button>
         </div>
       </form>
-
-      <p className="mt-8 text-center text-xs text-slate-500">
-        <Link href="https://supabase.com/docs/guides/auth/passwords" className="underline">
-          Supabase email and password auth
-        </Link>
-      </p>
     </div>
   );
 }
