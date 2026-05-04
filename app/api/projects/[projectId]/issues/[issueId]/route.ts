@@ -1,7 +1,8 @@
 import { jsonError } from "@/lib/api/errors";
 import { getLatestCompletedScanId } from "@/lib/api/latest-scan";
-import { getRouteSupabase } from "@/lib/api/supabase-route";
+import { getRouteSession } from "@/lib/api/route-auth";
 import { isUuid } from "@/lib/validation/project";
+import { getPool } from "@/lib/db/pool";
 import { NextResponse } from "next/server";
 
 type Ctx = { params: Promise<{ projectId: string; issueId: string }> };
@@ -14,30 +15,28 @@ export async function GET(request: Request, ctx: Ctx) {
     return jsonError(404, "NOT_FOUND", "Issue not found");
   }
 
-  const { supabase, user } = await getRouteSupabase(request);
+  const { user } = await getRouteSession(request);
   if (!user) {
     return jsonError(401, "UNAUTHORIZED", "Authentication required");
   }
 
-  const { data: project } = await supabase
-    .from("projects")
-    .select("id")
-    .eq("id", projectId)
-    .maybeSingle();
-  if (!project) {
+  const pool = getPool();
+  const projRes = await pool.query(
+    `select id from projects where id = $1 and user_id = $2`,
+    [projectId, user.id]
+  );
+  if (!projRes.rows[0]) {
     return jsonError(404, "NOT_FOUND", "Issue not found");
   }
 
-  const latestId = await getLatestCompletedScanId(supabase, projectId);
+  const latestId = await getLatestCompletedScanId(pool, projectId);
 
-  const { data: row, error } = await supabase
-    .from("drift_issues")
-    .select("*")
-    .eq("id", issueId)
-    .eq("project_id", projectId)
-    .maybeSingle();
-
-  if (error || !row) {
+  const { rows } = await pool.query(
+    `select * from drift_issues where id = $1 and project_id = $2`,
+    [issueId, projectId]
+  );
+  const row = rows[0];
+  if (!row) {
     return jsonError(404, "NOT_FOUND", "Issue not found");
   }
 
@@ -67,7 +66,7 @@ export async function PATCH(request: Request, ctx: Ctx) {
     return jsonError(404, "NOT_FOUND", "Issue not found");
   }
 
-  const { supabase, user } = await getRouteSupabase(request);
+  const { user } = await getRouteSession(request);
   if (!user) {
     return jsonError(401, "UNAUTHORIZED", "Authentication required");
   }
@@ -85,15 +84,22 @@ export async function PATCH(request: Request, ctx: Ctx) {
     });
   }
 
-  const latestId = await getLatestCompletedScanId(supabase, projectId);
+  const pool = getPool();
+  const projRes = await pool.query(
+    `select id from projects where id = $1 and user_id = $2`,
+    [projectId, user.id]
+  );
+  if (!projRes.rows[0]) {
+    return jsonError(404, "NOT_FOUND", "Issue not found");
+  }
 
-  const { data: existing } = await supabase
-    .from("drift_issues")
-    .select("*")
-    .eq("id", issueId)
-    .eq("project_id", projectId)
-    .maybeSingle();
+  const latestId = await getLatestCompletedScanId(pool, projectId);
 
+  const existingRes = await pool.query(
+    `select * from drift_issues where id = $1 and project_id = $2`,
+    [issueId, projectId]
+  );
+  const existing = existingRes.rows[0];
   if (!existing) {
     return jsonError(404, "NOT_FOUND", "Issue not found");
   }
@@ -101,16 +107,16 @@ export async function PATCH(request: Request, ctx: Ctx) {
     return jsonError(404, "NOT_FOUND", "Issue not found");
   }
 
-  const { data: row, error } = await supabase
-    .from("drift_issues")
-    .update({ status })
-    .eq("id", issueId)
-    .eq("project_id", projectId)
-    .select("*")
-    .single();
+  const upd = await pool.query(
+    `update drift_issues set status = $3::drift_status
+     where id = $1 and project_id = $2
+     returning *`,
+    [issueId, projectId, status]
+  );
 
-  if (error || !row) {
-    return jsonError(500, "INTERNAL_ERROR", error?.message || "Update failed");
+  const row = upd.rows[0];
+  if (!row) {
+    return jsonError(500, "INTERNAL_ERROR", "Update failed");
   }
 
   return NextResponse.json({
