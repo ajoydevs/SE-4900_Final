@@ -1,5 +1,6 @@
 import { jsonError } from "@/lib/api/errors";
 import { SESSION_COOKIE } from "@/lib/auth/cookie";
+import { getSafeRedirectPath } from "@/lib/auth/safe-redirect";
 import { verifySessionToken } from "@/lib/auth/session";
 import { NextResponse, type NextRequest } from "next/server";
 
@@ -25,7 +26,7 @@ export async function middleware(request: NextRequest) {
   if (!user && !isLogin) {
     const redirectUrl = request.nextUrl.clone();
     redirectUrl.pathname = "/login";
-    redirectUrl.searchParams.set("next", path);
+    redirectUrl.searchParams.set("next", getSafeRedirectPath(path));
     return NextResponse.redirect(redirectUrl);
   }
 
