@@ -1,5 +1,6 @@
 import { jsonError } from "@/lib/api/errors";
 import { appendSessionCookie } from "@/lib/auth/session-cookie";
+import { getSafeRedirectPath } from "@/lib/auth/safe-redirect";
 import { verifyPassword } from "@/lib/auth/password";
 import { createSessionToken } from "@/lib/auth/session";
 import { getPool } from "@/lib/db/pool";
@@ -21,6 +22,9 @@ export async function POST(request: Request) {
   const emailRaw = typeof b.email === "string" ? b.email.trim() : "";
   const email = emailRaw.toLowerCase();
   const password = typeof b.password === "string" ? b.password : "";
+  const redirectTo = getSafeRedirectPath(
+    typeof b.redirectTo === "string" ? b.redirectTo : undefined
+  );
 
   if (!isValidEmail(email)) {
     return jsonError(422, "VALIDATION_ERROR", "Invalid email");
@@ -48,8 +52,18 @@ export async function POST(request: Request) {
     return jsonError(401, "INVALID_CREDENTIALS", "Invalid email or password");
   }
 
-  const token = await createSessionToken(row.id, email);
-  const res = NextResponse.json({ ok: true });
+  let token: string;
+  try {
+    token = await createSessionToken(row.id, email);
+  } catch (e: unknown) {
+    const msg = e instanceof Error ? e.message : "Could not create session.";
+    console.error("login session token failed:", e);
+    return jsonError(500, "SESSION_FAILED", msg);
+  }
+
+  const origin = new URL(request.url).origin;
+  const dest = new URL(redirectTo, origin);
+  const res = NextResponse.redirect(dest, 303);
   appendSessionCookie(res, token);
   return res;
 }
