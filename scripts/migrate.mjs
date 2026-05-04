@@ -16,9 +16,40 @@ if (!DATABASE_URL) {
   process.exit(1);
 }
 
+function isConnectionRefused(err) {
+  if (!err) return false;
+  if (err.code === "ECONNREFUSED") return true;
+  if (Array.isArray(err.errors)) {
+    return err.errors.some((e) => e && e.code === "ECONNREFUSED");
+  }
+  return false;
+}
+
+function printPostgresHelp() {
+  console.error("");
+  console.error("Cannot reach PostgreSQL (connection refused on DATABASE_URL).");
+  console.error("The server is not running, or the host/port in .env.local is wrong.");
+  console.error("");
+  console.error("On macOS with Homebrew, for example:");
+  console.error("  brew install postgresql@16");
+  console.error("  brew services start postgresql@16");
+  console.error("  createdb docsync");
+  console.error("");
+  console.error("Or use Postgres.app: https://postgresapp.com — start the app, then createdb docsync.");
+  console.error("");
+}
+
 const client = new pg.Client({ connectionString: DATABASE_URL });
 
-await client.connect();
+try {
+  await client.connect();
+} catch (err) {
+  if (isConnectionRefused(err)) {
+    printPostgresHelp();
+    process.exit(1);
+  }
+  throw err;
+}
 
 try {
   await client.query(`
@@ -34,23 +65,26 @@ try {
   );
   if (rows.length > 0) {
     console.log("Database migrations already applied.");
-    process.exit(0);
+  } else {
+    const sqlPath = path.join(root, "db/migrations/001_local_postgres.sql");
+    const sql = fs.readFileSync(sqlPath, "utf8");
+
+    await client.query("BEGIN");
+    await client.query(sql);
+    await client.query(`insert into schema_migrations (version) values ($1)`, [
+      "001_local_postgres",
+    ]);
+    await client.query("COMMIT");
+    console.log("Applied migration 001_local_postgres.");
   }
-
-  const sqlPath = path.join(root, "db/migrations/001_local_postgres.sql");
-  const sql = fs.readFileSync(sqlPath, "utf8");
-
-  await client.query("BEGIN");
-  await client.query(sql);
-  await client.query(`insert into schema_migrations (version) values ($1)`, [
-    "001_local_postgres",
-  ]);
-  await client.query("COMMIT");
-  console.log("Applied migration 001_local_postgres.");
 } catch (err) {
   await client.query("ROLLBACK").catch(() => {});
   console.error(err);
-  process.exit(1);
+  process.exitCode = 1;
 } finally {
   await client.end();
+}
+
+if (process.exitCode === 1) {
+  process.exit(1);
 }
