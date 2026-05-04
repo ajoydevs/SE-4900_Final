@@ -1,6 +1,5 @@
 "use client";
 
-import { createBrowserSupabase } from "@/lib/supabase/client";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import type { ReactNode } from "react";
@@ -9,8 +8,7 @@ export function AppShell({ children }: { children: ReactNode }) {
   const router = useRouter();
 
   async function signOut() {
-    const supabase = createBrowserSupabase();
-    await supabase.auth.signOut();
+    await fetch("/api/auth/logout", { method: "POST", credentials: "same-origin" });
     router.replace("/login");
     router.refresh();
   }
