@@ -63,6 +63,23 @@ export async function POST(request: Request) {
 
   const origin = new URL(request.url).origin;
   const dest = new URL(redirectTo, origin);
+  // #region agent log
+  fetch("http://127.0.0.1:7792/ingest/18dde792-c522-4d1c-b861-703aa48af361", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "X-Debug-Session-Id": "16edb7",
+    },
+    body: JSON.stringify({
+      sessionId: "16edb7",
+      location: "api/auth/login/route.ts:POST",
+      message: "issuing 303 redirect + session cookie",
+      data: { destPath: dest.pathname, status: 303 },
+      timestamp: Date.now(),
+      hypothesisId: "H5",
+    }),
+  }).catch(() => {});
+  // #endregion
   const res = NextResponse.redirect(dest, 303);
   appendSessionCookie(res, token);
   return res;
