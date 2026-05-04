@@ -1,7 +1,4 @@
 import { SignJWT, jwtVerify } from "jose";
-import { SESSION_COOKIE } from "@/lib/auth/cookie";
-
-export { SESSION_COOKIE };
 
 const TTL_SEC = 60 * 60 * 24 * 7;
 
