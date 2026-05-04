@@ -1,31 +1,29 @@
 import { jsonError } from "@/lib/api/errors";
 import { mapProject } from "@/lib/api/mappers";
-import { getRouteSupabase } from "@/lib/api/supabase-route";
+import { getRouteSession } from "@/lib/api/route-auth";
 import { validateProjectInput } from "@/lib/validation/project";
+import { getPool } from "@/lib/db/pool";
 import { NextResponse } from "next/server";
 
 export async function GET(request: Request) {
-  const { supabase, user } = await getRouteSupabase(request);
+  const { user } = await getRouteSession(request);
   if (!user) {
     return jsonError(401, "UNAUTHORIZED", "Authentication required");
   }
 
-  const { data, error } = await supabase
-    .from("projects")
-    .select("*")
-    .order("created_at", { ascending: false });
-
-  if (error) {
-    return jsonError(500, "INTERNAL_ERROR", error.message);
-  }
+  const pool = getPool();
+  const { rows } = await pool.query(
+    `select * from projects where user_id = $1 order by created_at desc`,
+    [user.id]
+  );
 
   return NextResponse.json({
-    projects: (data || []).map((row) => mapProject(row as never)),
+    projects: rows.map((row) => mapProject(row as never)),
   });
 }
 
 export async function POST(request: Request) {
-  const { supabase, user } = await getRouteSupabase(request);
+  const { user } = await getRouteSession(request);
   if (!user) {
     return jsonError(401, "UNAUTHORIZED", "Authentication required");
   }
@@ -49,20 +47,18 @@ export async function POST(request: Request) {
     });
   }
 
-  const { data, error } = await supabase
-    .from("projects")
-    .insert({
-      user_id: user.id,
-      name: v.name,
-      repository_url: v.repositoryUrl,
-      documentation_source_url: v.documentationSourceUrl,
-    })
-    .select("*")
-    .single();
+  const pool = getPool();
+  const { rows } = await pool.query(
+    `insert into projects (user_id, name, repository_url, documentation_source_url)
+     values ($1, $2, $3, $4)
+     returning *`,
+    [user.id, v.name, v.repositoryUrl, v.documentationSourceUrl]
+  );
 
-  if (error) {
-    return jsonError(500, "INTERNAL_ERROR", error.message);
+  const row = rows[0];
+  if (!row) {
+    return jsonError(500, "INTERNAL_ERROR", "Insert failed");
   }
 
-  return NextResponse.json({ project: mapProject(data as never) }, { status: 201 });
+  return NextResponse.json({ project: mapProject(row as never) }, { status: 201 });
 }
