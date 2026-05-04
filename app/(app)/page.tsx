@@ -1,21 +1,21 @@
 import { mapProject } from "@/lib/api/mappers";
+import { requireServerSession } from "@/lib/auth/server-session";
 import { formatLocalDateTime } from "@/lib/format-date";
-import { createServerSupabase } from "@/lib/supabase/server";
+import { getPool } from "@/lib/db/pool";
 import type { ProjectListItem } from "@/lib/types";
 import Link from "next/link";
 
 export const dynamic = "force-dynamic";
 
 export default async function DashboardPage() {
-  const supabase = await createServerSupabase();
-  const { data: rows } = await supabase
-    .from("projects")
-    .select("*")
-    .order("created_at", { ascending: false });
-
-  const projects: ProjectListItem[] = (rows || []).map((r) =>
-    mapProject(r as never)
+  const user = await requireServerSession();
+  const pool = getPool();
+  const { rows } = await pool.query(
+    `select * from projects where user_id = $1 order by created_at desc`,
+    [user.id]
   );
+
+  const projects: ProjectListItem[] = rows.map((r) => mapProject(r as never));
 
   return (
     <div className="space-y-8">
