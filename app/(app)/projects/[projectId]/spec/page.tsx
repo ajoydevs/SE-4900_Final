@@ -1,4 +1,5 @@
-import { createServerSupabase } from "@/lib/supabase/server";
+import { requireServerSession } from "@/lib/auth/server-session";
+import { getPool } from "@/lib/db/pool";
 import { SpecAttachClient } from "./spec-client";
 import Link from "next/link";
 import { notFound } from "next/navigation";
@@ -9,19 +10,22 @@ type Props = { params: Promise<{ projectId: string }> };
 
 export default async function SpecPage(props: Props) {
   const { projectId } = await props.params;
-  const supabase = await createServerSupabase();
-  const { data: project } = await supabase
-    .from("projects")
-    .select("name")
-    .eq("id", projectId)
-    .maybeSingle();
+  const user = await requireServerSession();
+  const pool = getPool();
+
+  const projRes = await pool.query(
+    `select name from projects where id = $1 and user_id = $2`,
+    [projectId, user.id]
+  );
+  const project = projRes.rows[0];
   if (!project) notFound();
 
-  const { data: spec } = await supabase
-    .from("openapi_specs")
-    .select("validation_status, original_filename, updated_at, validation_errors")
-    .eq("project_id", projectId)
-    .maybeSingle();
+  const specRes = await pool.query(
+    `select validation_status, original_filename, updated_at, validation_errors
+     from openapi_specs where project_id = $1`,
+    [projectId]
+  );
+  const spec = specRes.rows[0];
 
   return (
     <div className="space-y-6">
