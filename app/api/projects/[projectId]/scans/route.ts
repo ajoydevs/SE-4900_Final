@@ -1,7 +1,7 @@
 import { randomUUID } from "crypto";
 import { jsonError } from "@/lib/api/errors";
 import { collectScanPrereqMissing } from "@/lib/api/scan-prereq";
-import { getRouteSession } from "@/lib/api/route-auth";
+import { getAppUserId } from "@/lib/auth/app-user";
 import {
   ENGINE_VERSION,
   runDriftScan,
@@ -24,15 +24,12 @@ export async function POST(request: Request, ctx: Ctx) {
     return jsonError(404, "NOT_FOUND", "Project not found");
   }
 
-  const { user } = await getRouteSession(request);
-  if (!user) {
-    return jsonError(401, "UNAUTHORIZED", "Authentication required");
-  }
+  const userId = await getAppUserId();
 
   const pool = getPool();
   const projRes = await pool.query(
     `select * from projects where id = $1 and user_id = $2`,
-    [projectId, user.id]
+    [projectId, userId]
   );
   const project = projRes.rows[0];
   if (!project) {
@@ -68,7 +65,7 @@ export async function POST(request: Request, ctx: Ctx) {
   try {
     await pool.query(
       `select insert_running_scan($1::uuid, $2::uuid, $3::uuid, $4::text, $5::text)`,
-      [user.id, projectId, runId, ENGINE_VERSION, openapiSha]
+      [userId, projectId, runId, ENGINE_VERSION, openapiSha]
     );
   } catch (e) {
     const msg = rpcMessage(e);
@@ -120,7 +117,7 @@ export async function POST(request: Request, ctx: Ctx) {
     try {
         await pool.query(
           `select finalize_scan_run($1::uuid, $2::uuid, $3::uuid, $4::jsonb, $5::jsonb)`,
-          [user.id, projectId, runId, pRun, payload.issues]
+          [userId, projectId, runId, pRun, payload.issues]
         );
     } catch (err) {
       console.error("finalize_scan_run", err);
