@@ -31,7 +31,7 @@ In Supabase **Authentication → URL configuration**, add your local site URL an
 - Site URL: `http://localhost:3000` (or your deployed origin)
 - Additional redirect URLs: `http://localhost:3000/auth/callback`
 
-Enable the **Email** provider and **Magic link** / OTP sign-in per Supabase docs.
+In **Authentication → Providers → Email**, enable the **Email** provider. Turn on **Magic link** (or “Email OTP”) if you want passwordless sign-in, and ensure **Email / password** (or “Allow users to sign up with email and password”) is enabled if you use the **Email & password** tab on the login page. Confirm **Site URL** and redirect URLs above match your deployment.
 
 ## Database schema and RLS
 
