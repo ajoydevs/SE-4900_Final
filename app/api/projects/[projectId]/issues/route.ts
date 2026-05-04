@@ -1,7 +1,8 @@
 import { jsonError } from "@/lib/api/errors";
 import { getLatestCompletedScanId } from "@/lib/api/latest-scan";
-import { getRouteSupabase } from "@/lib/api/supabase-route";
+import { getRouteSession } from "@/lib/api/route-auth";
 import { isUuid } from "@/lib/validation/project";
+import { getPool } from "@/lib/db/pool";
 import { NextResponse } from "next/server";
 
 type Ctx = { params: Promise<{ projectId: string }> };
@@ -12,21 +13,21 @@ export async function GET(request: Request, ctx: Ctx) {
     return jsonError(404, "NOT_FOUND", "Project not found");
   }
 
-  const { supabase, user } = await getRouteSupabase(request);
+  const { user } = await getRouteSession(request);
   if (!user) {
     return jsonError(401, "UNAUTHORIZED", "Authentication required");
   }
 
-  const { data: project } = await supabase
-    .from("projects")
-    .select("id")
-    .eq("id", projectId)
-    .maybeSingle();
-  if (!project) {
+  const pool = getPool();
+  const projRes = await pool.query(
+    `select id from projects where id = $1 and user_id = $2`,
+    [projectId, user.id]
+  );
+  if (!projRes.rows[0]) {
     return jsonError(404, "NOT_FOUND", "Project not found");
   }
 
-  const latestId = await getLatestCompletedScanId(supabase, projectId);
+  const latestId = await getLatestCompletedScanId(pool, projectId);
   if (!latestId) {
     const url = new URL(request.url);
     const severity = url.searchParams.get("severity");
@@ -38,24 +39,19 @@ export async function GET(request: Request, ctx: Ctx) {
     });
   }
 
-  const { data: rows, error } = await supabase
-    .from("drift_issues")
-    .select(
-      "id, title, affected_area, severity, status, detected_at, scan_run_id"
-    )
-    .eq("project_id", projectId)
-    .eq("scan_run_id", latestId)
-    .order("detected_at", { ascending: false });
-
-  if (error) {
-    return jsonError(500, "INTERNAL_ERROR", error.message);
-  }
+  const { rows } = await pool.query(
+    `select id, title, affected_area, severity, status, detected_at, scan_run_id
+     from drift_issues
+     where project_id = $1 and scan_run_id = $2
+     order by detected_at desc`,
+    [projectId, latestId]
+  );
 
   const url = new URL(request.url);
   const severity = url.searchParams.get("severity");
   const status = url.searchParams.get("status");
 
-  const issues = (rows || []).map((r) => ({
+  const issues = rows.map((r) => ({
     id: r.id as string,
     title: r.title as string,
     affectedArea: r.affected_area as string,
