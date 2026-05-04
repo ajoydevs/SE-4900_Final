@@ -1,5 +1,5 @@
 import { jsonError } from "@/lib/api/errors";
-import { getRouteSession } from "@/lib/api/route-auth";
+import { getAppUserId } from "@/lib/auth/app-user";
 import { validateOpenApiText } from "@/lib/openapi/validate";
 import { sha256HexUtf8, stripBom } from "@/lib/util/hash";
 import { isUuid } from "@/lib/validation/project";
@@ -23,15 +23,12 @@ export async function POST(request: Request, ctx: Ctx) {
     return jsonError(404, "NOT_FOUND", "Project not found");
   }
 
-  const { user } = await getRouteSession(request);
-  if (!user) {
-    return jsonError(401, "UNAUTHORIZED", "Authentication required");
-  }
+  const userId = await getAppUserId();
 
   const pool = getPool();
   const projRes = await pool.query(
     `select id from projects where id = $1 and user_id = $2`,
-    [projectId, user.id]
+    [projectId, userId]
   );
   if (!projRes.rows[0]) {
     return jsonError(404, "NOT_FOUND", "Project not found");
@@ -110,7 +107,7 @@ export async function POST(request: Request, ctx: Ctx) {
 
   const insertPayload = {
     project_id: projectId,
-    user_id: user.id,
+    user_id: userId,
     raw_spec_text: validated.ok ? validated.canonicalText : canonical,
     original_filename: originalFilename,
     format: validated.ok ? validated.format : format,
