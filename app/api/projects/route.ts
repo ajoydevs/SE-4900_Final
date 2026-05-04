@@ -1,20 +1,17 @@
 import { jsonError } from "@/lib/api/errors";
 import { mapProject } from "@/lib/api/mappers";
-import { getRouteSession } from "@/lib/api/route-auth";
+import { getAppUserId } from "@/lib/auth/app-user";
 import { validateProjectInput } from "@/lib/validation/project";
 import { getPool } from "@/lib/db/pool";
 import { NextResponse } from "next/server";
 
-export async function GET(request: Request) {
-  const { user } = await getRouteSession(request);
-  if (!user) {
-    return jsonError(401, "UNAUTHORIZED", "Authentication required");
-  }
+export async function GET() {
+  const userId = await getAppUserId();
 
   const pool = getPool();
   const { rows } = await pool.query(
     `select * from projects where user_id = $1 order by created_at desc`,
-    [user.id]
+    [userId]
   );
 
   return NextResponse.json({
@@ -23,10 +20,7 @@ export async function GET(request: Request) {
 }
 
 export async function POST(request: Request) {
-  const { user } = await getRouteSession(request);
-  if (!user) {
-    return jsonError(401, "UNAUTHORIZED", "Authentication required");
-  }
+  const userId = await getAppUserId();
 
   let body: unknown;
   try {
@@ -52,7 +46,7 @@ export async function POST(request: Request) {
     `insert into projects (user_id, name, repository_url, documentation_source_url)
      values ($1, $2, $3, $4)
      returning *`,
-    [user.id, v.name, v.repositoryUrl, v.documentationSourceUrl]
+    [userId, v.name, v.repositoryUrl, v.documentationSourceUrl]
   );
 
   const row = rows[0];
