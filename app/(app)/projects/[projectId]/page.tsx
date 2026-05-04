@@ -1,7 +1,8 @@
 import { ProjectScanPanel } from "@/components/ProjectScanPanel";
 import { mapProject } from "@/lib/api/mappers";
+import { requireServerSession } from "@/lib/auth/server-session";
 import { formatLocalDateTime } from "@/lib/format-date";
-import { createServerSupabase } from "@/lib/supabase/server";
+import { getPool } from "@/lib/db/pool";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 
@@ -11,16 +12,22 @@ type Props = { params: Promise<{ projectId: string }> };
 
 export default async function ProjectHomePage(props: Props) {
   const { projectId } = await props.params;
-  const supabase = await createServerSupabase();
-  const { data: project } = await supabase.from("projects").select("*").eq("id", projectId).maybeSingle();
-  if (!project) notFound();
-  const p = mapProject(project as never);
+  const user = await requireServerSession();
+  const pool = getPool();
+  const projRes = await pool.query(
+    `select * from projects where id = $1 and user_id = $2`,
+    [projectId, user.id]
+  );
+  const projectRow = projRes.rows[0];
+  if (!projectRow) notFound();
+  const p = mapProject(projectRow as never);
 
-  const { data: spec } = await supabase
-    .from("openapi_specs")
-    .select("validation_status, original_filename, updated_at")
-    .eq("project_id", projectId)
-    .maybeSingle();
+  const specRes = await pool.query(
+    `select validation_status, original_filename, updated_at from openapi_specs
+     where project_id = $1`,
+    [projectId]
+  );
+  const spec = specRes.rows[0];
 
   const openapiAttached = !!spec;
   const openapiValid = spec?.validation_status === "valid";
