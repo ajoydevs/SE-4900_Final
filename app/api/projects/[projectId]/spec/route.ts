@@ -1,8 +1,9 @@
 import { jsonError } from "@/lib/api/errors";
-import { getRouteSupabase } from "@/lib/api/supabase-route";
+import { getRouteSession } from "@/lib/api/route-auth";
 import { validateOpenApiText } from "@/lib/openapi/validate";
 import { sha256HexUtf8, stripBom } from "@/lib/util/hash";
 import { isUuid } from "@/lib/validation/project";
+import { getPool } from "@/lib/db/pool";
 import { NextResponse } from "next/server";
 
 const MAX_BYTES = 2 * 1024 * 1024;
@@ -22,17 +23,17 @@ export async function POST(request: Request, ctx: Ctx) {
     return jsonError(404, "NOT_FOUND", "Project not found");
   }
 
-  const { supabase, user } = await getRouteSupabase(request);
+  const { user } = await getRouteSession(request);
   if (!user) {
     return jsonError(401, "UNAUTHORIZED", "Authentication required");
   }
 
-  const { data: project, error: pErr } = await supabase
-    .from("projects")
-    .select("id")
-    .eq("id", projectId)
-    .maybeSingle();
-  if (pErr || !project) {
+  const pool = getPool();
+  const projRes = await pool.query(
+    `select id from projects where id = $1 and user_id = $2`,
+    [projectId, user.id]
+  );
+  if (!projRes.rows[0]) {
     return jsonError(404, "NOT_FOUND", "Project not found");
   }
 
@@ -58,11 +59,7 @@ export async function POST(request: Request, ctx: Ctx) {
     }
     const buf = Buffer.from(await file.arrayBuffer());
     if (buf.length > MAX_BYTES) {
-      return jsonError(
-        413,
-        "VALIDATION_ERROR",
-        "File exceeds 2 MB limit."
-      );
+      return jsonError(413, "VALIDATION_ERROR", "File exceeds 2 MB limit.");
     }
     rawText = buf.toString("utf8");
     originalFilename = name;
@@ -111,28 +108,49 @@ export async function POST(request: Request, ctx: Ctx) {
 
   const contentSha = sha256HexUtf8(canonical);
 
-  const { data: upserted, error: uErr } = await supabase
-    .from("openapi_specs")
-    .upsert(
-      {
-        project_id: projectId,
-        user_id: user.id,
-        raw_spec_text: validated.ok ? validated.canonicalText : canonical,
-        original_filename: originalFilename,
-        format: validated.ok ? validated.format : format,
-        validation_status: validationStatus,
-        validation_errors: validationErrors.length ? validationErrors : null,
-        content_sha256: validated.ok
-          ? sha256HexUtf8(validated.canonicalText)
-          : contentSha,
-      },
-      { onConflict: "project_id" }
-    )
-    .select("validation_status, validation_errors, original_filename, updated_at")
-    .single();
+  const insertPayload = {
+    project_id: projectId,
+    user_id: user.id,
+    raw_spec_text: validated.ok ? validated.canonicalText : canonical,
+    original_filename: originalFilename,
+    format: validated.ok ? validated.format : format,
+    validation_status: validationStatus,
+    validation_errors: validationErrors.length ? validationErrors : null,
+    content_sha256: validated.ok
+      ? sha256HexUtf8(validated.canonicalText)
+      : contentSha,
+  };
 
-  if (uErr || !upserted) {
-    return jsonError(500, "INTERNAL_ERROR", uErr?.message || "Save failed");
+  const { rows } = await pool.query(
+    `insert into openapi_specs (
+       project_id, user_id, raw_spec_text, original_filename, format,
+       validation_status, validation_errors, content_sha256
+     ) values ($1, $2, $3, $4, $5, $6::openapi_validation_status, $7, $8)
+     on conflict (project_id) do update set
+       user_id = excluded.user_id,
+       raw_spec_text = excluded.raw_spec_text,
+       original_filename = excluded.original_filename,
+       format = excluded.format,
+       validation_status = excluded.validation_status,
+       validation_errors = excluded.validation_errors,
+       content_sha256 = excluded.content_sha256,
+       updated_at = now()
+     returning validation_status, validation_errors, original_filename, updated_at`,
+    [
+      insertPayload.project_id,
+      insertPayload.user_id,
+      insertPayload.raw_spec_text,
+      insertPayload.original_filename,
+      insertPayload.format,
+      insertPayload.validation_status,
+      insertPayload.validation_errors,
+      insertPayload.content_sha256,
+    ]
+  );
+
+  const upserted = rows[0];
+  if (!upserted) {
+    return jsonError(500, "INTERNAL_ERROR", "Save failed");
   }
 
   return NextResponse.json({
