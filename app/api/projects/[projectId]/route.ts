@@ -1,27 +1,24 @@
 import { jsonError } from "@/lib/api/errors";
 import { mapProject } from "@/lib/api/mappers";
-import { getRouteSession } from "@/lib/api/route-auth";
+import { getAppUserId } from "@/lib/auth/app-user";
 import { isUuid, validateProjectInput } from "@/lib/validation/project";
 import { getPool } from "@/lib/db/pool";
 import { NextResponse } from "next/server";
 
 type Ctx = { params: Promise<{ projectId: string }> };
 
-export async function GET(request: Request, ctx: Ctx) {
+export async function GET(_request: Request, ctx: Ctx) {
   const { projectId } = await ctx.params;
   if (!isUuid(projectId)) {
     return jsonError(404, "NOT_FOUND", "Project not found");
   }
 
-  const { user } = await getRouteSession(request);
-  if (!user) {
-    return jsonError(401, "UNAUTHORIZED", "Authentication required");
-  }
+  const userId = await getAppUserId();
 
   const pool = getPool();
   const { rows } = await pool.query(
     `select * from projects where id = $1 and user_id = $2`,
-    [projectId, user.id]
+    [projectId, userId]
   );
   const project = rows[0];
   if (!project) {
@@ -63,10 +60,7 @@ export async function PATCH(request: Request, ctx: Ctx) {
     return jsonError(404, "NOT_FOUND", "Project not found");
   }
 
-  const { user } = await getRouteSession(request);
-  if (!user) {
-    return jsonError(401, "UNAUTHORIZED", "Authentication required");
-  }
+  const userId = await getAppUserId();
 
   let body: unknown;
   try {
@@ -85,7 +79,7 @@ export async function PATCH(request: Request, ctx: Ctx) {
   const pool = getPool();
   const existingRes = await pool.query(
     `select * from projects where id = $1 and user_id = $2`,
-    [projectId, user.id]
+    [projectId, userId]
   );
   const existing = existingRes.rows[0];
   if (!existing) {
@@ -123,7 +117,7 @@ export async function PATCH(request: Request, ctx: Ctx) {
        documentation_source_url = $4
      where id = $1 and user_id = $5
      returning *`,
-    [projectId, v.name, v.repositoryUrl, v.documentationSourceUrl, user.id]
+    [projectId, v.name, v.repositoryUrl, v.documentationSourceUrl, userId]
   );
 
   const data = upd.rows[0];
