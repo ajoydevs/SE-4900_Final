@@ -4,7 +4,42 @@ import { getSafeRedirectPath } from "@/lib/auth/safe-redirect";
 import { useSearchParams } from "next/navigation";
 import { Suspense, useCallback, useState } from "react";
 
+async function readAuthError(res: Response): Promise<string> {
+  const text = await res.text();
+  try {
+    const parsed = JSON.parse(text) as { error?: { message?: string } };
+    if (parsed?.error?.message) return parsed.error.message;
+  } catch {
+    /* not JSON */
+  }
+  const t = text.trim();
+  if (t.length > 0 && t.length < 600) return t;
+  return `Something went wrong (HTTP ${res.status}).`;
+}
+
 async function handleAuthResponse(res: Response): Promise<boolean> {
+  // #region agent log
+  fetch("http://127.0.0.1:7792/ingest/18dde792-c522-4d1c-b861-703aa48af361", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "X-Debug-Session-Id": "16edb7",
+    },
+    body: JSON.stringify({
+      sessionId: "16edb7",
+      location: "login/page.tsx:handleAuthResponse",
+      message: "branch check",
+      data: {
+        status: res.status,
+        type: res.type,
+        ok: res.ok,
+        hasLocation: !!res.headers.get("Location"),
+      },
+      timestamp: Date.now(),
+      hypothesisId: "H1",
+    }),
+  }).catch(() => {});
+  // #endregion
   if ([301, 302, 303, 307, 308].includes(res.status)) {
     const loc = res.headers.get("Location");
     window.location.href = loc ?? "/";
@@ -46,16 +81,35 @@ function LoginForm() {
         }),
       });
 
+      // #region agent log
+      fetch("http://127.0.0.1:7792/ingest/18dde792-c522-4d1c-b861-703aa48af361", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "X-Debug-Session-Id": "16edb7",
+        },
+        body: JSON.stringify({
+          sessionId: "16edb7",
+          location: "login/page.tsx:signIn:afterFetch",
+          message: "login fetch resolved",
+          data: {
+            status: res.status,
+            type: res.type,
+            ok: res.ok,
+            url: res.url,
+          },
+          timestamp: Date.now(),
+          hypothesisId: "H1",
+        }),
+      }).catch(() => {});
+      // #endregion
+
       if (await handleAuthResponse(res)) {
         return;
       }
 
-      const payload = (await res.json().catch(() => null)) as {
-        error?: { message?: string };
-      } | null;
-
       if (!res.ok) {
-        setError(payload?.error?.message ?? "Could not sign in.");
+        setError(await readAuthError(res));
         return;
       }
 
@@ -85,14 +139,8 @@ function LoginForm() {
         return;
       }
 
-      const payload = (await res.json().catch(() => null)) as {
-        error?: { message?: string };
-      } | null;
-
       if (!res.ok) {
-        const msg =
-          payload?.error?.message ?? "Could not create account.";
-        setError(msg);
+        setError(await readAuthError(res));
         return;
       }
 
