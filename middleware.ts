@@ -1,55 +1,28 @@
-import { createServerClient } from "@supabase/ssr";
 import { jsonError } from "@/lib/api/errors";
-import { getSupabasePublicKey, getSupabaseUrl } from "@/lib/supabase/env";
+import { SESSION_COOKIE } from "@/lib/auth/cookie";
+import { verifySessionToken } from "@/lib/auth/session";
 import { NextResponse, type NextRequest } from "next/server";
 
 export async function middleware(request: NextRequest) {
-  let supabaseResponse = NextResponse.next({
-    request,
-  });
-
-  const url = getSupabaseUrl();
-  const publicKey = getSupabasePublicKey();
-  if (!url || !publicKey) {
-    return supabaseResponse;
-  }
-
-  const supabase = createServerClient(url, publicKey, {
-    cookies: {
-      getAll() {
-        return request.cookies.getAll();
-      },
-      setAll(cookiesToSet) {
-        cookiesToSet.forEach(({ name, value }) =>
-          request.cookies.set(name, value)
-        );
-        supabaseResponse = NextResponse.next({ request });
-        cookiesToSet.forEach(({ name, value, options }) =>
-          supabaseResponse.cookies.set(name, value, options)
-        );
-      },
-    },
-  });
-
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const raw = request.cookies.get(SESSION_COOKIE)?.value;
+  const user = await verifySessionToken(raw);
 
   const path = request.nextUrl.pathname;
   const isLogin = path === "/login" || path.startsWith("/login/");
-  const isAuthCallback = path.startsWith("/auth/callback");
   const isHealth = path === "/api/health";
+  const isPublicAuth =
+    path === "/api/auth/register" || path === "/api/auth/login";
 
   if (isHealth) {
-    return supabaseResponse;
+    return NextResponse.next();
   }
 
   const isApi = path.startsWith("/api/");
-  if (!user && isApi && !isHealth) {
+  if (!user && isApi && !isPublicAuth) {
     return jsonError(401, "UNAUTHORIZED", "Authentication required");
   }
 
-  if (!user && !isLogin && !isAuthCallback) {
+  if (!user && !isLogin) {
     const redirectUrl = request.nextUrl.clone();
     redirectUrl.pathname = "/login";
     redirectUrl.searchParams.set("next", path);
@@ -63,7 +36,7 @@ export async function middleware(request: NextRequest) {
     return NextResponse.redirect(redirectUrl);
   }
 
-  return supabaseResponse;
+  return NextResponse.next();
 }
 
 export const config = {
